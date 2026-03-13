@@ -1,7 +1,7 @@
 name: "Network Sniffer → Elasticsearch"
 description: "Captures network packets with tcpdump and ships them to Elasticsearch."
 version: "1.0.0"
-slug: network_sniffer
+slug: "network_sniffer"
 init: false
 arch:
   - aarch64
@@ -9,6 +9,7 @@ arch:
   - armv7
 host_network: true
 privileged: true
+url: "https://github.com/alexisdeudon01/ha-network-sniffer"
 options:
   interface: "eth0"
   es_host: "http://your-ec2-ip:9200"
