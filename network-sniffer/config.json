@@ -6,7 +6,7 @@
   "init": false,
   "arch": ["aarch64", "amd64", "armv7"],
   "host_network": true,
-  "privileged": true,
+  "privileged": ["SYS_ADMIN", "NET_ADMIN", "NET_RAW"],
   "url": "https://github.com/alexisdeudon01/ha-network-sniffer",
   "options": {
     "interface": "eth0",
