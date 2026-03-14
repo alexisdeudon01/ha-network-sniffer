@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Network Sniffer</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0f0f1a; color: #e0e0e0; font-family: system-ui, sans-serif; font-size: 13px; }
+.header { background: #1a1a2e; padding: 16px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #333; }
+.header h1 { font-size: 16px; font-weight: 700; color: #60a5fa; }
+select, button { background: #0f0f1a; color: #e0e0e0; border: 1px solid #444; border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+button.active { background: #22c55e; border-color: #22c55e; color: #fff; }
+button.stop { background: #ef4444; border-color: #ef4444; color: #fff; }
+button.monitor-on { background: #8b5cf6; border-color: #8b5cf6; color: #fff; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.filter-btn { padding: 4px 10px; font-size: 11px; border-radius: 12px; }
+.filter-btn.on { color: #fff; }
+.filter-btn[data-proto="HTTP"].on { background: #3b82f6; border-color: #3b82f6; }
+.filter-btn[data-proto="HTTPS"].on { background: #6366f1; border-color: #6366f1; }
+.filter-btn[data-proto="DNS"].on { background: #f59e0b; border-color: #f59e0b; }
+.filter-btn[data-proto="TCP"].on { background: #22c55e; border-color: #22c55e; }
+.filter-btn[data-proto="UDP"].on { background: #14b8a6; border-color: #14b8a6; }
+.filter-btn[data-proto="ARP"].on { background: #f97316; border-color: #f97316; }
+.filter-btn[data-proto="ICMP"].on { background: #ec4899; border-color: #ec4899; }
+.filter-btn[data-proto="SSH"].on { background: #a78bfa; border-color: #a78bfa; }
+.filter-btn[data-proto="DHCP"].on { background: #84cc16; border-color: #84cc16; }
+.stats { display: flex; gap: 12px; padding: 10px 20px; background: #1a1a2e; border-bottom: 1px solid #333; flex-wrap: wrap; }
+.stat { font-size: 11px; color: #888; }
+.stat span { color: #60a5fa; font-weight: 600; }
+.table-wrap { overflow: auto; height: calc(100vh - 160px); }
+table { width: 100%; border-collapse: collapse; }
+th { background: #1a1a2e; color: #888; font-weight: 600; text-align: left; padding: 8px 12px; position: sticky; top: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #333; }
+td { padding: 5px 12px; border-bottom: 1px solid #1a1a2e; font-family: monospace; font-size: 12px; white-space: nowrap; }
+tr:hover td { background: #1a1a2e; }
+.proto { border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 700; color: #fff; }
+.proto-HTTP { background: #3b82f6; }
+.proto-HTTPS { background: #6366f1; }
+.proto-DNS { background: #f59e0b; }
+.proto-TCP { background: #22c55e; }
+.proto-UDP { background: #14b8a6; }
+.proto-ARP { background: #f97316; }
+.proto-ICMP { background: #ec4899; }
+.proto-SSH { background: #a78bfa; }
+.proto-DHCP { background: #84cc16; }
+.proto-OTHER { background: #64748b; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.dot-on { background: #22c55e; box-shadow: 0 0 6px #22c55e; animation: pulse 1s infinite; }
+.dot-off { background: #64748b; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.raw { color: #555; font-size: 11px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🔬 Network Sniffer</h1>
+  <span class="status-dot dot-off" id="dot"></span>
+  <select id="iface-select">
+    {% for iface in interfaces %}
+    <option value="{{ iface }}">{{ iface }}</option>
+    {% endfor %}
+  </select>
+  <button id="monitor-btn" onclick="toggleMonitor()" style="display:none">Monitor OFF</button>
+  <button id="start-btn" onclick="startCapture()">▶ Start</button>
+  <button id="stop-btn" onclick="stopCapture()" class="stop" style="display:none">■ Stop</button>
+  <button onclick="clearPackets()">🗑 Clear</button>
+  <div class="filters">
+    <span style="color:#888;font-size:11px">Filters:</span>
+    <button class="filter-btn on" data-proto="HTTP" onclick="toggleFilter(this)">HTTP</button>
+    <button class="filter-btn on" data-proto="HTTPS" onclick="toggleFilter(this)">HTTPS</button>
+    <button class="filter-btn on" data-proto="DNS" onclick="toggleFilter(this)">DNS</button>
+    <button class="filter-btn on" data-proto="TCP" onclick="toggleFilter(this)">TCP</button>
+    <button class="filter-btn on" data-proto="UDP" onclick="toggleFilter(this)">UDP</button>
+    <button class="filter-btn" data-proto="ARP" onclick="toggleFilter(this)">ARP</button>
+    <button class="filter-btn" data-proto="ICMP" onclick="toggleFilter(this)">ICMP</button>
+    <button class="filter-btn" data-proto="SSH" onclick="toggleFilter(this)">SSH</button>
+    <button class="filter-btn" data-proto="DHCP" onclick="toggleFilter(this)">DHCP</button>
+  </div>
+</div>
+<div class="stats">
+  <div class="stat">Packets: <span id="s-total">0</span></div>
+  <div class="stat">HTTP: <span id="s-http">0</span></div>
+  <div class="stat">DNS: <span id="s-dns">0</span></div>
+  <div class="stat">TCP: <span id="s-tcp">0</span></div>
+  <div class="stat">UDP: <span id="s-udp">0</span></div>
+  <div class="stat">Interface: <span id="s-iface">—</span></div>
+</div>
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Time</th><th>Proto</th><th>Source</th><th>Destination</th><th>Length</th><th>Info</th></tr></thead>
+    <tbody id="pkt-table"></tbody>
+  </table>
+</div>
+<script>
+let running = false, offset = 0, pollTimer = null;
+let monitorOn = false;
+const counts = {HTTP:0,HTTPS:0,DNS:0,TCP:0,UDP:0,ARP:0,ICMP:0,SSH:0,DHCP:0,OTHER:0};
+
+// Load interfaces and check monitor support
+fetch('/api/interfaces').then(r=>r.json()).then(ifaces => {
+  const sel = document.getElementById('iface-select');
+  sel.innerHTML = '';
+  ifaces.forEach(i => {
+    const o = document.createElement('option');
+    o.value = i.name; o.textContent = i.name;
+    sel.appendChild(o);
+  });
+  checkMonitorSupport();
+});
+
+document.getElementById('iface-select').addEventListener('change', checkMonitorSupport);
+
+function checkMonitorSupport() {
+  const iface = document.getElementById('iface-select').value;
+  fetch('/api/interfaces').then(r=>r.json()).then(ifaces => {
+    const info = ifaces.find(i => i.name === iface);
+    const btn = document.getElementById('monitor-btn');
+    if (info && info.monitor_capable) {
+      btn.style.display = '';
+    } else {
+      btn.style.display = 'none';
+    }
+  });
+}
+
+function toggleFilter(btn) {
+  btn.classList.toggle('on');
+}
+
+function getFilters() {
+  return [...document.querySelectorAll('.filter-btn.on')].map(b => b.dataset.proto);
+}
+
+function startCapture() {
+  const iface = document.getElementById('iface-select').value;
+  const filters = getFilters();
+  fetch('/api/start', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({interface: iface, filters})})
+    .then(r=>r.json()).then(() => {
+      running = true; offset = 0;
+      document.getElementById('dot').className = 'status-dot dot-on';
+      document.getElementById('start-btn').style.display = 'none';
+      document.getElementById('stop-btn').style.display = '';
+      document.getElementById('s-iface').textContent = iface;
+      pollTimer = setInterval(poll, 1000);
+    });
+}
+
+function stopCapture() {
+  fetch('/api/stop', {method:'POST'}).then(() => {
+    running = false;
+    clearInterval(pollTimer);
+    document.getElementById('dot').className = 'status-dot dot-off';
+    document.getElementById('start-btn').style.display = '';
+    document.getElementById('stop-btn').style.display = 'none';
+  });
+}
+
+function clearPackets() {
+  fetch('/api/clear', {method:'POST'});
+  document.getElementById('pkt-table').innerHTML = '';
+  offset = 0;
+  Object.keys(counts).forEach(k => counts[k] = 0);
+  updateStats();
+}
+
+function toggleMonitor() {
+  const iface = document.getElementById('iface-select').value;
+  monitorOn = !monitorOn;
+  fetch('/api/monitor', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({interface: iface, enable: monitorOn})})
+    .then(r=>r.json()).then(d => {
+      const btn = document.getElementById('monitor-btn');
+      if (monitorOn) { btn.textContent = 'Monitor ON'; btn.className = 'monitor-on'; }
+      else { btn.textContent = 'Monitor OFF'; btn.className = ''; }
+    });
+}
+
+function updateStats() {
+  document.getElementById('s-total').textContent = Object.values(counts).reduce((a,b)=>a+b,0);
+  document.getElementById('s-http').textContent = (counts.HTTP||0)+(counts.HTTPS||0);
+  document.getElementById('s-dns').textContent = counts.DNS||0;
+  document.getElementById('s-tcp').textContent = counts.TCP||0;
+  document.getElementById('s-udp').textContent = counts.UDP||0;
+}
+
+function poll() {
+  fetch('/api/packets?since='+offset).then(r=>r.json()).then(pkts => {
+    if (!pkts.length) return;
+    offset += pkts.length;
+    const tbody = document.getElementById('pkt-table');
+    const atBottom = tbody.parentElement.scrollHeight - tbody.parentElement.scrollTop <= tbody.parentElement.clientHeight + 50;
+    pkts.forEach(p => {
+      counts[p.proto] = (counts[p.proto]||0) + 1;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${p.time}</td>
+        <td><span class="proto proto-${p.proto}">${p.proto}</span></td>
+        <td>${p.src||'—'}</td>
+        <td>${p.dst||'—'}</td>
+        <td>${p.length||'—'}</td>
+        <td class="raw">${p.raw}</td>`;
+      tbody.insertBefore(tr, tbody.firstChild);
+      if (tbody.children.length > 500) tbody.removeChild(tbody.lastChild);
+    });
+    updateStats();
+  });
+}
+</script>
+</body>
+</html>
